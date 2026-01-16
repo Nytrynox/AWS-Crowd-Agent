@@ -1,63 +1,46 @@
-# 👥 AWS Crowd Agent
+# AWS Crowd Agent
 
-An AI-powered crowd analysis and management system using YOLOv8 for real-time people detection and tracking.
+## Overview
+AWS Crowd Agent is a distributed crowd-sensing framework designed to leverage AWS cloud infrastructure for large-scale data aggregation. The system collects, processes, and analyzes data from numerous edge sources, providing real-time insights for crowd management and environmental monitoring.
 
----
+## Features
+-   **Distributed Sensing**: Scalable architecture for handling thousands of concurrent data streams.
+-   **Cloud Integration**: Seamless connection with AWS IoT Core and Lambda.
+-   **Real-time Analytics**: Immediate data processing using Kinesis and DynamoDB.
+-   **Edge Computation**: Local filtering and pre-processing to reduce latency.
+-   **Secure Transmission**: Encrypted communication utilizing MQTT and TLS.
 
-## 🌟 Overview
+## Technology Stack
+-   **Cloud Provider**: Amazon Web Services (AWS).
+-   **Services**: IoT Core, Lambda, DynamoDB, Kinesis, S3.
+-   **Backend**: Node.js / Python.
+-   **Protocol**: MQTT over WebSockets.
 
-AWS Crowd Agent leverages advanced computer vision and YOLOv8 object detection to analyze crowd dynamics, track individuals, and provide actionable insights for crowd management.
+## Usage Flow
+1.  **Sense**: Edge agents collect local metrics (e.g., density, temperature).
+2.  **Transmit**: Data is pushed securely to the AWS IoT gateway.
+3.  **Process**: Lambda functions trigger to normalize and analyze incoming packets.
+4.  **Store**: Aggregated results are persisted in DynamoDB for historical analysis.
+5.  **Visualize**: Dashboard pulls live metrics for operator review.
 
-## ✨ Features
-
-- **Real-time Detection** - YOLOv8-powered people detection
-- **Crowd Analytics** - Density mapping and flow analysis
-- **AWS Integration** - Cloud-ready architecture
-- **Scalable** - Handles large-scale deployments
-
-## 📁 Project Structure
-
-```
-aws/
-├── crowd-agent/      # Main agent application
-├── yolov8n.pt        # YOLOv8 nano model weights
-└── README.md
-```
-
-## 🚀 Quick Start
-
+## Quick Start
 ```bash
 # Clone the repository
 git clone https://github.com/Nytrynox/AWS-Crowd-Agent.git
-cd AWS-Crowd-Agent
-
-# Navigate to agent
-cd crowd-agent
 
 # Install dependencies
-pip install ultralytics opencv-python
+npm install
 
-# Run detection
-python main.py
+# Configure AWS Credentials
+aws configure
+
+# Deploy the stack
+cd infrastructure
+sam deploy --guided
 ```
 
-## 🔬 Technology Stack
-
-| Component | Technology |
-|-----------|------------|
-| Detection | YOLOv8 (Ultralytics) |
-| Processing | OpenCV, NumPy |
-| Cloud | AWS Ready |
-
-## 📝 License
-
+## License
 MIT License
 
-## 👤 Author
-
-**Karthik Idikuda**  
-AI/ML Developer
-
----
-
-*Smart crowd intelligence*
+## Author
+**Karthik Idikuda**

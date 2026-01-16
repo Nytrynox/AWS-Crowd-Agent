@@ -1,0 +1,13 @@
+{
+  "camera_id": "CAM01",
+  "location": "Gate A",
+  "timestamp": "2025-09-25T10:25:00Z",
+  "snapshot_b64": "<base64-jpeg>",
+  "cv": {
+    "people_count": 235,
+    "grid_counts": [[12,45,20],[33,50,10],[5,30,0]],
+    "anomaly": true,
+    "anomaly_confidence": 0.87,
+    "motion_magnitude": 0.23
+  }
+}

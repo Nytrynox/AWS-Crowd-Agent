@@ -1,0 +1,5 @@
+# Root deps for local demo and Lambda packaging
+boto3
+ultralytics
+opencv-python
+numpy

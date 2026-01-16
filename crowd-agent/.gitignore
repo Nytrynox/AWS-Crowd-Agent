@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Node
+node_modules/
+
+# SageMaker artifacts
+*.pt
+*.onnx
+model/
+output/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store

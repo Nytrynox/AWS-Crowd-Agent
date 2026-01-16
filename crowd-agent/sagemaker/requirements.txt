@@ -1,0 +1,7 @@
+boto3
+sagemaker>=2.214.1
+numpy
+opencv-python-headless
+ultralytics
+torch
+torchvision

@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Crowd Safety Agent - Core Infra (SNS, S3, Lambda, IAM roles)
+
+Parameters:
+  SnapshotBucketName:
+    Type: String
+    Default: crowd-agent-snapshots-CHANGE
+  CodeBucketName:
+    Type: String
+    Description: Pre-existing S3 bucket that contains the Lambda package zip
+  CodeKey:
+    Type: String
+    Default: lambda/handler.zip
+    Description: S3 key for the Lambda package inside CodeBucketName
+  AlertEmail:
+    Type: String
+    Description: Email to subscribe to SNS alerts
+  EventsTableName:
+    Type: String
+    Default: crowd-agent-events
+  IngestTopicName:
+    Type: String
+    Default: crowd-agent-ingest
+
+Resources:
+  SnapshotBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref SnapshotBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: CrowdGuard Alerts
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlertTopic
+      Endpoint: !Ref AlertEmail
+
+  IngestTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref IngestTopicName
+      DisplayName: CrowdGuard Ingest
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CrowdGuardAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${SnapshotBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref AlertTopic
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EventsTableName}'
+
+  ControllerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        S3Bucket: !Ref CodeBucketName
+        S3Key: !Ref CodeKey
+      Timeout: 60
+      MemorySize: 2048
+      Environment:
+        Variables:
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          SNAPSHOT_BUCKET: !Ref SnapshotBucketName
+          BEDROCK_MODEL_ID: 'anthropic.claude-3-5-sonnet-20240620-v1:0'
+          EVENTS_TABLE: !Ref EventsTableName
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref EventsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+
+  StatusFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 15
+      Code:
+        ZipFile: |
+          import os, json, boto3
+          TABLE = os.environ.get('EVENTS_TABLE')
+          s3 = boto3.client('s3')
+          ddb = boto3.resource('dynamodb')
+
+          def presign(bucket, key, secs=300):
+              return s3.generate_presigned_url('get_object', Params={'Bucket': bucket, 'Key': key}, ExpiresIn=secs)
+
+          def handler(event, context):
+              table = ddb.Table(TABLE)
+              # naive scan for demo
+              resp = table.scan(Limit=25)
+              items = resp.get('Items', [])
+              for it in items:
+                  snap = it.get('snapshot', '')
+                  if snap.startswith('s3://'):
+                      _, rest = snap.split('s3://', 1)
+                      bucket, key = rest.split('/', 1)
+                      it['snapshot_url'] = presign(bucket, key)
+              return {
+                  'statusCode': 200,
+                  'headers': {
+                      'Content-Type': 'application/json',
+                      'Access-Control-Allow-Origin': '*',
+                      'Access-Control-Allow-Methods': 'GET,OPTIONS',
+                      'Access-Control-Allow-Headers': 'Content-Type'
+                  },
+                  'body': json.dumps({'items': items})
+              }
+      Environment:
+        Variables:
+          EVENTS_TABLE: !Ref EventsTableName
+
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: CrowdGuardStatusApi
+
+  ApiResourceStatus:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId
+      PathPart: status
+
+  ApiMethodGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ResourceId: !Ref ApiResourceStatus
+      RestApiId: !Ref Api
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StatusFunction.Arn}/invocations'
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ApiMethodGet
+    Properties:
+      RestApiId: !Ref Api
+      StageName: prod
+
+  AllowApiInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref StatusFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/status'
+
+  IngestSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref IngestTopic
+      Endpoint: !GetAtt ControllerFunction.Arn
+
+  AllowSnsInvokeController:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ControllerFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref IngestTopic
+
+Outputs:
+  SnapshotBucket:
+    Value: !Ref SnapshotBucketName
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+  IngestTopicArn:
+    Value: !Ref IngestTopic
+  LambdaRoleArn:
+    Value: !GetAtt LambdaRole.Arn
+  ControllerFunctionName:
+    Value: !Ref ControllerFunction
+  StatusApiUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod/status'
